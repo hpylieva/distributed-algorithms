@@ -15,7 +15,7 @@ def sequential_prefix_sum(sequence):
     return prefix_sum
 
 
-def upward_summator(array, level, num, proc, print_log = False):
+def _upward_summator(array, level, num, proc, print_log):
     """
     Performs upward summation for parallel prefix sum
     :param level:
@@ -30,7 +30,7 @@ def upward_summator(array, level, num, proc, print_log = False):
         array[sum_index] = array[sum_index] + array[sum_index - 2 ** level]
 
 
-def downward_summator(array, level, num, proc, print_log = False):
+def _downward_summator(array, level, num, proc, print_log):
     """
     Performs downward summation for parallel prefix sum
     :param level:
@@ -62,6 +62,8 @@ def parallel_prefix_sum(sequence, max_cores=4, print_log = False):
 
     array = multiprocessing.Array('i', input_seq)
     jobs = []
+
+    # first_phase - upward summator
     for level in range(0, int(depth)):
         if print_log:
             print("Level:", level)
@@ -71,7 +73,7 @@ def parallel_prefix_sum(sequence, max_cores=4, print_log = False):
             core_number = max_cores
             processing_field = int(length / core_number)
         for i in range(core_number):
-            p = multiprocessing.Process(target=upward_summator, args=(array, level, i, processing_field))
+            p = multiprocessing.Process(target = _upward_summator, args=(array, level, i, processing_field, print_log))
             p.daemon = False
             jobs.append(p)
             p.start()
@@ -79,9 +81,11 @@ def parallel_prefix_sum(sequence, max_cores=4, print_log = False):
             p.join()
         if print_log:
             print(array[:])
-    # second phase - down summator
+
     cumsum = array[length - 1]
     array[length - 1] = 0
+
+    # second phase - downward summator
     for level in range(int(depth), -1, -1):
         if print_log:
             print("Level:", level)
@@ -91,7 +95,7 @@ def parallel_prefix_sum(sequence, max_cores=4, print_log = False):
             core_number = max_cores
             processing_field = int(length / core_number)
         for i in range(core_number):
-            p = multiprocessing.Process(target=downward_summator, args=(array, level, i, processing_field))
+            p = multiprocessing.Process(target = _downward_summator, args=(array, level, i, processing_field, print_log))
             p.daemon = False
             jobs.append(p)
             p.start()
@@ -107,34 +111,39 @@ if __name__ == '__main__':
     max_cores = 4
     #sequence_size = 200
     print_log = False
+    run_single = True
 
-    sizes = range(1, 15)
-    time_sequential = []
-    time_parallel = []
+    if run_single:
+        sequence = [1]*16
+        parallel_prefix_sum(sequence, max_cores, True)
+    else:
+        sizes = range(1, 15)
+        time_sequential = []
+        time_parallel = []
 
-    for size in sizes:
-        sequence_size = 2**size
-        sequence = [1] * sequence_size
+        for size in sizes:
+            sequence_size = 2**size
+            sequence = [1] * sequence_size
 
-        time_start = time.time()
-        sequential_prefix_sum(sequence)
-        time_taken = time.time() - time_start
-        time_sequential.append(time_taken)
-        print('Sequential prefix sum with input sequence length {0} took {1}s'.format(sequence_size, time_taken))
+            time_start = time.time()
+            sequential_prefix_sum(sequence)
+            time_taken = time.time() - time_start
+            time_sequential.append(time_taken)
+            print('Sequential prefix sum with input sequence length {0} took {1}s'.format(sequence_size, time_taken))
 
-        time_start = time.time()
-        parallel_prefix_sum(sequence, max_cores)
-        time_taken = time.time() - time_start
-        time_parallel.append(time_taken)
+            time_start = time.time()
+            parallel_prefix_sum(sequence, max_cores)
+            time_taken = time.time() - time_start
+            time_parallel.append(time_taken)
 
-        print('Parallel prefix sum with input sequence length {0} took {1}s'.format(sequence_size, time_taken))
+            print('Parallel prefix sum with input sequence length {0} took {1}s'.format(sequence_size, time_taken))
 
-    plt.figure()
-    plt.plot(sizes, time_sequential)
-    plt.plot(sizes, time_parallel)
-    plt.legend(["Sequential", "Parallel"], loc=2)
-    plt.xlabel("Size of input sequence")
-    plt.ylabel("Run time")
-    plt.show()
+        plt.figure()
+        plt.plot(sizes, time_sequential)
+        plt.plot(sizes, time_parallel)
+        plt.legend(["Sequential", "Parallel"], loc=2)
+        plt.xlabel("Size of input sequence")
+        plt.ylabel("Run time")
+        plt.show()
 
-    plt.savefig('result.png')
+        plt.savefig('result.png')
