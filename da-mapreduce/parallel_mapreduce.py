@@ -1,54 +1,122 @@
 import collections
-import itertools
+import math
 import multiprocessing
+import time
 
 
 class MapReduce(object):
-    def __init__(self, map_func, reduce_func, num_workers):
+
+    def _mapper(self, input, output, length, worker_number, chunksize):
+        print("Thread {0} is working".format(worker_number))
+        id_start = worker_number * chunksize
+        id_end = min((worker_number + 1) * chunksize, length)
+        print("It processes indexes of input array between {0} and {1}".format(id_start, id_end))
+        for i in range(length)[id_start:id_end]:
+            if input[i] in output:
+                output[input[i]] += [1]
+            else:
+                output[input[i]] = []
+                output[input[i]] += [1]
+
+
+    def map_parallel(self, input, num_threads=4, verbose=False):
         """
-        map_func
-
-          Function to map inputs to intermediate data. Takes as
-          argument one input value and returns a tuple with the key
-          and a value to be reduced.
-
-        reduce_func
-
-          Function to reduce partitioned version of intermediate data
-          to final output. Takes as argument a key as produced by
-          map_func and a sequence of the values associated with that
-          key.
-
-        num_workers
-
-          The number of workers to create in the pool. Defaults to the
-          number of CPUs available on the current host.
+        A standard map part of MapReduce job. The work is done in num_workers threads
+        as much in parallel as Python multiprocessing allows.
+        :param input: list of values
+        :param num_threads: number of threads to handle work
+        :return: result of applying _mapper in form of (key, value)
         """
-        self.map_func = map_func
-        self.reduce_func = reduce_func
-        self.pool = multiprocessing.Pool(num_workers)
+        input_len = len(input)
+        input_dict = multiprocessing.Manager().dict(enumerate(input))
+        output_dict = multiprocessing.Manager().dict()
+        chunksize = math.ceil(input_len / num_threads)
 
-    def partition(self, mapped_values):
-        """Organize the mapped values by their key.
-        Returns an unsorted sequence of tuples with a key and a sequence of values.
+        # Create the threads.
+        threads = []
+        # Start the threads.
+        for i in range(num_threads):
+            t = multiprocessing.Process(target=self._mapper, args=(input_dict, output_dict, input_len, i, chunksize))
+            threads.append(t)
+            t.start()
+            # I've introduced delay as otherwise my processed didn't want to wait for each other correctly
+            # as a result not all the values were processed
+            time.sleep(1)
+            if verbose:
+                print("Current state of output array:")
+                print("{" + "\n".join("{}: {}".format(k, v) for k, v in output_dict.items()) + "}")
+
+        # Wait for the threads to finish.
+        for t in threads:
+            t.join()
+        for t in threads:
+            t.terminate()
+
+        return output_dict
+
+
+    def _reducer(self, input, output, input_keys, worker_number, chunksize):
+        print("Thread {0} is working".format(worker_number))
+        id_start = worker_number * chunksize
+        id_end = min((worker_number + 1) * chunksize, len(input_keys))
+        print("It processes keys: ", input_keys[id_start: id_end])
+        for key in input_keys[id_start:id_end]:
+            if key in output:
+                output[key] += sum(input[key])
+            else:
+                output[key] = 0
+                output[key] += sum(input[key])
+
+    def reduce_parallel(self, input_dict, num_threads=4, verbose=False):
         """
-        partitioned_data = collections.defaultdict(list)
-        for key, value in mapped_values:
-            partitioned_data[key].append(value)
-        return partitioned_data.items()
-
-
-    def __call__(self, inputs, chunksize=None):
-        """Process the inputs through the map and reduce functions given.
-
-        inputs
-          An iterable containing the input data to be processed.
-
-        chunksize=1
-          The portion of the input data to hand to each worker.  This
-          can be used to tune performance during the mapping phase.
+        A standard reduce part of MapReduce job. The work is done in num_workers threads
+        as much in parallel as Python multiprocessing allows.
+        :param input_dict: result of map
+        :param num_threads: number of threads to handle work
+        :return: result of applying _reducer in form of (key, value)
         """
-        map_responses = self.pool.map(self.map_func, inputs, chunksize=chunksize)
-        partitioned_data = self.partition(map_responses)
-        reduced_values = self.pool.map(self.reduce_func, partitioned_data)
+        input_keys = [*input_dict.keys()]
+        input_dict = multiprocessing.Manager().dict(input_dict)
+        output_dict = multiprocessing.Manager().dict()
+        chunksize = math.ceil(len(input_keys) / num_threads)
+
+        # Create the threads.
+        threads = []
+        # Start the threads.
+        for i in range(num_threads):
+            t = multiprocessing.Process(target=self._reducer, args=(input_dict, output_dict, input_keys, i, chunksize))
+            threads.append(t)
+            t.start()
+            # I've introduced delay as otherwise my processed didn't want to wait for each other correctly
+            # as a result not all the values were processed
+            time.sleep(1)
+            if verbose:
+                print("Current state of output array:")
+                print("{" + "\n".join("{}: {}".format(k, v) for k, v in output_dict.items()) + "}")
+
+        # Wait for the threads to finish.
+        for t in threads:
+            t.join()
+        for t in threads:
+            t.terminate()
+
+        ordered_tuple = collections.OrderedDict(sorted(output_dict.items()))
+        return ordered_tuple.items()
+
+    def __call__(self, inputs, num_workers, verbose=False):
+        """
+        Processes the inputs through the map and reduce functions given.
+        :param inputs: an iterable containing the input data to be processed.
+        :param num_workers: number of threads to handle both map and reduce specified by user
+        :param verbose: allows to restrict verbosity of the algorithm, if False - less is printed in logs
+        :return: reduced values: result of MapReduce job
+        """
+
+        print("Map is running...\n")
+        map_responses = self.map_parallel(inputs, num_workers, verbose)
+        if verbose:
+            print("Map response")
+            print("{" + "\n".join("{}: {}".format(k, v) for k, v in map_responses.items()) + "}")
+
+        reduced_values = self.reduce_parallel(map_responses, num_workers, verbose)
         return reduced_values
