@@ -14,6 +14,9 @@ class MapReduce(object):
         self.the_reducer = the_reducer
 
     def _mapper(self, input, output, length, worker_number, chunksize):
+        """
+        Implements map part which is done by each Worker(Process) in parallel.
+        """
         print("Thread {0} is working".format(worker_number))
         id_start = worker_number * chunksize
         id_end = min((worker_number + 1) * chunksize, length)
@@ -31,7 +34,7 @@ class MapReduce(object):
         as much in parallel as Python multiprocessing allows.
         :param input: list of values
         :param num_threads: number of threads to handle work
-        :return: result of applying _mapper in form of (key, value)
+        :return: result of applying _mapper in form of (key, value). Keys are sorted in ascending order
         """
         input_len = len(input)
         input_dict = multiprocessing.Manager().dict(enumerate(input))
@@ -56,9 +59,17 @@ class MapReduce(object):
             t.join()
         for t in threads:
             t.terminate()
-        return output_dict
+        ordered_dict = collections.OrderedDict(sorted(output_dict.items()))
+        return ordered_dict
 
     def _reducer(self, input, output, input_keys, worker_number, chunksize):
+        """
+        Implements reduce part which is done by each Worker(Process) in parallel.
+
+        As keys of input are sorted, allocating data each Worker an equal number of
+        indices which are taken sequentially makes sense as will always send the same key to the same
+        reducer
+        """
         print("Thread {0} is working".format(worker_number))
         id_start = worker_number * chunksize
         id_end = min((worker_number + 1) * chunksize, len(input_keys))
@@ -74,7 +85,7 @@ class MapReduce(object):
         """
         A standard reduce part of MapReduce job. The work is done in num_workers threads
         as much in parallel as Python multiprocessing allows.
-        :param input_dict: result of map
+        :param input_dict: result of map - dict(key,value) where keys are sorted in ascending order
         :param num_threads: number of threads to handle work
         :return: result of applying _reducer in form of (key, value)
         """
